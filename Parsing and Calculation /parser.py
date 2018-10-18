@@ -7,10 +7,23 @@ import matplotlib.pyplot as plt
 import sys
 import calc
 
+import numpy as np
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.externals import joblib
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC, LinearSVC
+from sklearn import metrics
+from sklearn.feature_selection import RFECV, RFE
+from sklearn import preprocessing
+from sklearn.model_selection import cross_val_score, train_test_split
+import timeit
+import multiprocessing
+
 # parse using pandas seems to be faster
 def parse(dance):
     print("Reaading from {} file".format(dance))
-    data = pd.read_csv(dance, sep=" ", header=None)
+    data = pd.read_csv(dance, header=None, skiprows=1, skipfooter=1) #skiprows=1 because first line always error
     data.columns = ["acc_x", "acc_y", "acc_z",
                     "gyro_x", "gyro_y", "gyro_z",
                     "flex_index", "flex_pinky"]
@@ -103,7 +116,22 @@ def obtain_data(dance_files):
     break_all_files(dance_files)
     with open(dance_files, "r") as f:
         for line in f:
-            dances.append(parse(line.strip()))
+            data = parse(line.strip())
+            print(data.isnull().values.any())
+            dances.append(data)
+
+    return dances
+
+def obtain_data_map(dance_files):
+    dances = []
+    with open(dance_files, "r") as f:
+        for line in f:
+            dance, label = line.strip().split("#")
+            dance = dance.strip()
+            label = label.strip()
+            data = parse(dance)
+            # print(data.isnull().values.any())
+            dances.append((data, label))
 
     return dances
 
@@ -116,7 +144,7 @@ def segment(data, size, overlap):
 
     start = 0
     # need to ensure that the increment is an integer
-    increment = math.floor(size*(overlap/100))
+    increment = size - math.floor(size*(overlap/100))
     end = start + size
 
     while (end <= len(data.index)):
@@ -132,8 +160,8 @@ def segment(data, size, overlap):
 def min_length(dances):
     min = sys.maxsize
     for dance in dances:
-        if (len(dance.index) < min):
-            min = len(dance.index)
+        if (len(dance[0].index) < min):
+            min = len(dance[0].index)
 
     return min
 
@@ -149,7 +177,8 @@ def window_length(size, period):
     # need to round off the window length to a integer, decided to round down
     return math.floor((size*factor)/period) # number of rows in a dataframe
 
-
+# input: dataframe
+# return: int list
 def calc_features(frame):
 
     acc_x = frame["acc_x"]
@@ -160,6 +189,10 @@ def calc_features(frame):
     gyro_z = frame["gyro_z"]
     flex_index = frame["flex_index"]
     flex_pinky = frame["flex_pinky"]
+
+    gyro_correlation_1 = calc.correlation(gyro_x, gyro_y)
+    gyro_correlation_2 = calc.correlation(gyro_x, gyro_z)
+    gyro_correlation_3 = calc.correlation(gyro_y, gyro_z)
 
     acc_mean_x = calc.mean(acc_x)
     acc_mean_y = calc.mean(acc_y)
@@ -212,13 +245,15 @@ def calc_features(frame):
     gyro_iqr_x = calc.iqr(gyro_x)
     gyro_iqr_y = calc.iqr(gyro_y)
     gyro_iqr_z = calc.iqr(gyro_z)
-
-    gyro_correlation_1 = calc.correlation(gyro_x, gyro_y)
-    gyro_correlation_2 = calc.correlation(gyro_x, gyro_z)
-    gyro_correlation_3 = calc.correlation(gyro_y, gyro_z)
     
     feature_frame = [
-        acc_mean_x, acc_mean_y, acc_mean_z, acc_std_x, acc_std_y, acc_std_z, acc_mad_x, acc_mad_y, acc_mad_z, acc_max_x, acc_max_y, acc_max_z, acc_min_x, acc_min_y, acc_min_z, acc_iqr_x, acc_iqr_y, acc_iqr_z, acc_correlation_1, acc_correlation_2, acc_correlation_3,
+        acc_mean_x, acc_mean_y, acc_mean_z,
+        acc_std_x, acc_std_y, acc_std_z,
+        acc_mad_x, acc_mad_y, acc_mad_z,
+        acc_max_x, acc_max_y, acc_max_z,
+        acc_min_x, acc_min_y, acc_min_z,
+        acc_iqr_x, acc_iqr_y, acc_iqr_z,
+        acc_correlation_1, acc_correlation_2, acc_correlation_3,
         gyro_mean_x, gyro_mean_y, gyro_mean_z,
         gyro_std_x, gyro_std_y, gyro_std_z,
         gyro_mad_x, gyro_mad_y, gyro_mad_z,
@@ -240,23 +275,138 @@ def plot(dataframe, column):
     ax.plot(y)
     plt.show()
 
+
+def gen_xy(dances, X_file, y_file):
+    X_file = open(X_file, "w")
+    y_file = open(y_file, "w")
+    all_dance_frames = []
+
+    # for each dance dataframe
+    for dance in dances:
+
+        # generate data segments
+        segments_dance = segment(dance[0], length, overlap)
+
+        # list of feature_frames
+        feature_frames = []
+
+        for item in segments_dance:
+            # Calculate features for each data segment
+            feature_frame = calc_features(item)
+            temp_test = pd.DataFrame(feature_frame)
+
+            # Conditional breakpoint was set here because under certain window sizes, the duplicate values in
+            # sensor readings cause pearsonr to divide by 0 becuase stddev = 0
+            # therefore do not use 0.3s window
+            temp_test.isnull().values.any()
+            feature_frames.append(feature_frame)
+
+        # Normalize
+        norm_frames = preprocessing.normalize(feature_frames)
+
+        # so one frame corresponds to one entry in X_train/test and a corresponding y_train/test label
+        # list of frames for one dance
+        all_dance_frames.append(norm_frames)
+
+        # Need to map the frames to their class
+        temp = []
+        label = dance[1]
+        for frame in norm_frames:
+            temp.append((frame, label))
+
+        for item in temp:
+            check = np.array_str(item[0]).lstrip('[').rstrip(']').replace("\n", "")
+            X_file.write(check + "\n")
+            y_file.write(str(item[1]) + "\n")
+    X_file.close()
+    y_file.close()
+
+# Weird block of global code set up just for the timeit function
+# clf1 = KNeighborsClassifier(n_neighbors=5)
+# clf2 = RandomForestClassifier(n_estimators=10, random_state=42, n_jobs=-1)
+# clf3 = LogisticRegression()
+# clf4 = LinearSVC(multi_class="ovr")
+# X_train = np.loadtxt("X_train.txt")
+# y_train = np.loadtxt("y_train.txt")
+# X_test = np.loadtxt("X_test.txt")
+# y_test = np.loadtxt("y_test.txt")
+
+def test1(clf,X_test,y_test,X_train,y_train):
+    # clf.fit(X_train,y_train)
+    clf.score(X_test, y_test)
+
+def load_classifier(clf_file):
+    return joblib.load(clf_file)
+
+def classify(clf, input):
+    return clf.predict(input)[0]
+
+def wrapper(clf, temp):
+    # for loop to convert required format to build dataframe
+    tempArr = []
+    for item in temp:
+        tempArr.append([float(val) for val in item.strip().split(",")])
+    df = pd.DataFrame(tempArr)
+    df.columns = ["acc_x", "acc_y", "acc_z",
+                  "gyro_x", "gyro_y", "gyro_z",
+                  "flex_index", "flex_pinky"]
+    features = calc_features(df)
+    print(classify(clf, [features]))
+    return classify(clf, [features])
+
+def simulate(dance_file, sampling_period, window_size, overlap, clf_file):
+    total = []
+    length = window_length(window_size, sampling_period)
+    clf = load_classifier(clf_file)
+    start = 0
+    increment = int(length - math.floor(length * (overlap / 100.0)))
+    end = int(start + length)
+    with open(dance_file, "r") as f:
+        for line in f:
+            total.append(line)
+            if (len(total) % length == 0):
+                temp = total[int(start):int(end)]
+                # print("{} : {}".format(start, end))
+                # for loop to convert required format to build dataframe
+                p = multiprocessing.Process(target=wrapper, args=(clf,temp))
+                p.start()
+                # wrapper(clf,df)
+                start += increment
+                end = start + length
+
+    while (end <= len(total)):
+        temp = total[int(start):int(end)]
+        # print("{} : {}".format(start, end))
+        # for loop to convert required format to build dataframe
+        p = multiprocessing.Process(target=wrapper, args=(clf, temp))
+        p.start()
+        # wrapper(clf,df)
+        start += increment
+        end = start + length
+
+    print("END + {} + {}".format(end, length))
+
 if __name__ == "__main__":
     dance_files = "all_dances.txt"
-    dances = obtain_data(dance_files)  # all dance dataframes
-
-    # print(dances[0].shape)
+    X_file = "X_train.txt"
+    y_file = "y_train.txt"
+    #
+    dances = obtain_data_map(dance_files)
 
     # Dont have to care about flex sensor data for now because we dont have dance moves that use them yet
     # plot(dances[0], "flex_index")
 
+    # inputs should be in float
+    # python2 python3 integer division problem
+
     # in milliseconds
-    sampling_period = 30
+    sampling_period = 30.0
 
     # in seconds
-    window_size = 3.5
+    window_size = 2
 
     # in floating point or decimal numbers
-    overlap = 50
+    overlap = 50.0
 
     # Need to guarantee that the window_size is not larger than smallest dataframe
     min = min_length(dances)
@@ -265,48 +415,85 @@ if __name__ == "__main__":
 
     if (check_size(min, length)):
         # start processing
-        all_dance_frames = []
-
-        X_file = open("X.txt", "w")
-        y_file = open("y.txt", "w")
-
-        # for each dance dataframe
-        for dance in dances:
-
-            # generate data segments
-            segments_dance = segment(dance, length, overlap)
-
-            # list of feature_frames
-            feature_frames = []
-
-            for item in segments_dance:
-                # Calculate features for each data segment
-                feature_frame = calc_features(item)
-                feature_frames.append(feature_frame)
-
-            # Normalize
-            norm_frames = preprocessing.normalize(feature_frames)
-
-            print(norm_frames)
-            # so one frame corresponds to one entry in X_train/test and a corresponding y_train/test label
-            # list of frames for one dance
-            all_dance_frames.append(norm_frames)
-
-            # Need to map the frames to their class
-            temp = []
-            label = 1
-            for frame in norm_frames:
-                temp.append((frame, label))
-
-            for item in temp:
-                check = np.array_str(item[0]).lstrip('[').rstrip(']').replace("\n", "")
-                X_file.write(check+"\n")
-                y_file.write(str(item[1])+"\n")
-        X_file.close()
-        y_file.close()
-
+        gen_xy(dances, X_file, y_file)
     else:
         print("Check size failed\nSpecified window length is larger than smallest dance dataframe size")
+
+    # Start machine learning
+    # X_train, X_test, y_train, y_test = train_test_split(np.loadtxt(X_file), np.loadtxt(y_file), train_size=0.7, random_state=42)
+
+    X_train_file = "X_train.txt"
+    y_train_file = "y_train.txt"
+    # X_test_file = "X_test4.txt"
+    # y_test_file = "y_test4.txt"
+    #
+    X_train = np.loadtxt(X_train_file)
+    y_train = np.loadtxt(y_train_file)
+    # X_test = np.loadtxt(X_test_file)
+    # y_test = np.loadtxt(y_test_file)
+
+    # x1 = open(X_train_file, "w")
+    # x2 = open(X_test_file, "w")
+    # y1 = open(y_train_file, "w")
+    # y2 = open(y_test_file, "w")
+    #
+    # np.savetxt(x1, X_train)
+    # np.savetxt(x2, X_test)
+    # np.savetxt(y1, y_train)
+    # np.savetxt(y2, y_test)
+    #
+    # x1.close()
+    # x2.close()
+    # y1.close()
+    # y2.close()
+    #
+    # print("Finished saving files")
+
+    clf1 = KNeighborsClassifier(n_neighbors=5)
+    clf2 = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    clf3 = LogisticRegression()
+    clf4 = LinearSVC(multi_class="ovr")
+
+    # scores1 = cross_val_score(clf1, X_train, y_train, cv=10)
+    # scores2 = cross_val_score(clf2, X_train, y_train, cv=10)
+    # scores3 = cross_val_score(clf3, X_train, y_train, cv=10)
+    # scores4 = cross_val_score(clf4, X_train, y_train, cv=10)
+    #
+    # print("KNeighborsClassifier accuracy: {}".format(scores1.mean()))
+    # print("RandomForestClassifier accuracy: {}".format(scores2.mean()))
+    # print("LogisticRegression accuracy: {}".format(scores3.mean()))
+    # print("LinearSVC accuracy: {}".format(scores4.mean()))
+
+    clf1.fit(X_train, y_train)
+    clf2.fit(X_train, y_train)
+    clf3.fit(X_train, y_train)
+    clf4.fit(X_train, y_train)
+
+    joblib.dump(clf1, "knn_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    joblib.dump(clf2, "random_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    joblib.dump(clf3, "log_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    joblib.dump(clf4, "linear_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+
+    # Test ML speed
+    # print(timeit.timeit("test1(clf1, X_test, y_test, X_train, y_train)",number=1, setup='from __main__ import test1, X_test, y_test, X_train, y_train, clf1; clf1.fit(X_train, y_train)'))
+    # print(timeit.timeit("test1(clf2, X_test, y_test, X_train, y_train)",number=1, setup='from __main__ import test1, X_test, y_test, X_train, y_train, clf2; clf2.fit(X_train, y_train)'))
+    # print(timeit.timeit("test1(clf3, X_test, y_test, X_train, y_train)",number=1, setup='from __main__ import test1, X_test, y_test, X_train, y_train, clf3; clf3.fit(X_train, y_train)'))
+    # print(timeit.timeit("test1(clf4, X_test, y_test, X_train, y_train)",number=1, setup='from __main__ import test1, X_test, y_test, X_train, y_train, clf4; clf4.fit(X_train, y_train)'))
+
+    # print(clf1.score(X_test, y_test))
+    # print(clf2.score(X_test, y_test))
+    # print(clf3.score(X_test, y_test))
+    # print(clf4.score(X_test, y_test))
+    #
+    # res = clf2.predict(X_test)
+    # print(res)
+    # print(y_test)
+
+    # simulate("ronald_number7_1.txt", sampling_period, window_size, overlap, "log.pkl")
+
+
+
+
 
 
 

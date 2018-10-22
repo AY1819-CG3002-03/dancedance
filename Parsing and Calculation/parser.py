@@ -490,21 +490,3 @@ if __name__ == "__main__":
     # print(y_test)
 
     # simulate("ronald_number7_1.txt", sampling_period, window_size, overlap, "log.pkl")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

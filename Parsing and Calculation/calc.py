@@ -34,10 +34,8 @@ rfft avoid returning the upper half of the spectrum which happens to be symmetri
 when computing the FFT of a real-valued input. It also avoids returning the 
 imaginary part of the DC (0Hz) bin and of the Nyquist frequency (half the sampling 
 rate) bin since those are always zero when dealing with real-valued inputs.
-
 Thus some duplicate inputs of the upper half is left out when comparing fft and 
 rfft. Is it necessary to consider these duplicate inputs?
-
 I saw need to take conjugate and what not: FYI and TBC
 """
 """

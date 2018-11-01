@@ -208,8 +208,6 @@ void setup() {
   IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
   // setting SRD to 19 for a 50 Hz update rate
   IMU.setSrd(19);
-  IMU.calibrateAccel();
-  IMU.calibrateGyro();
   prevTime = millis();
   Serial2.println("Done");
   Serial2.flush();

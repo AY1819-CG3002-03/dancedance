@@ -22,13 +22,13 @@ if len(sys.argv) > 1:
 else:
     print("Using default file name: {}".format(file_name))
 
+print("Please plug in the Arduino power cable")
+
 received_str = ""
 while "Done" not in received_str:
 	received_data = ser.readline()
 	print(received_data)
 	received_str = received_data.decode("utf-8")
-
-print("Please plug in the Arduino power cable")
 
 while True:
 	# ============ Connection HandShake ======================

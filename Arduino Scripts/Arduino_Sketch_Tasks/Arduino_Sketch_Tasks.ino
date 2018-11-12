@@ -148,11 +148,6 @@ boolean serialTimeout() {
   return hasTimeout;
 }
 
-int cleanPacket(int packet) {
-  int filter = 7;
-  return packet & filter;
-}
-
 // ==================== Setup ================================
 void setup() {
   Serial.begin(57600);
@@ -231,14 +226,14 @@ void sensorReader(void *p) {
     // ------ Reading voltage and current sensor data ------
     voltageValue = analogRead(VOLTAGE_SENSOR_PIN);    // Reading voltage value
     voltage = 2 * voltageValue * 5.0 / 1024;    // Remap the ADC value into a voltage number (5V reference)
-    readingsArray[8] = voltage;
+    readingsArray[6] = voltage;
 
     // Follow the equation given by the INA169 datasheet to determine the current flowing through RS
     // Assume RL = 10k, Is = (Vout x 1k) / (RS x RL)
     currentValue = analogRead(CURRENT_SENSOR_PIN);    // Reading current value
     current = (currentValue * VOLTAGE_REF) / 1023.0;
     current = current / (10 * RS);
-    readingsArray[9] = current;
+    readingsArray[7] = current;
 
 
     // ----- Read the IMU sensor -------
@@ -265,6 +260,7 @@ void sensorReader(void *p) {
     readingsArray[4] = IMU.getGyroY_rads();
     readingsArray[5] = IMU.getGyroZ_rads();
 
+    /*
     // ----- Read the index finger's flex sensor -------
     // Read the ADC of index finger’s flex sensor, and calculate voltage and resistance from it
     indexADC = analogRead(INDEX_FLEX_PIN);
@@ -287,6 +283,7 @@ void sensorReader(void *p) {
     //Serial.print(pinkyAngle);
     //Serial.println();
     readingsArray[7] = pinkyAngle;
+    */
 
     //dprintf("Done with reading sensors");
     xSemaphoreGive(queueSemaphore);
@@ -315,10 +312,10 @@ void dataSender(void *p) {
       if (!serialTimeout()) {
         incomingByte = Serial2.read();
         //clearRxBuffer();
-        if (incomingByte == cleanPacket(DISCONN_REQ)) {
+        if (incomingByte == DISCONN_REQ) {
           //dprintf("- Disconnection Request received");
           xEventGroupSetBits(flagGroup, BIT_0);
-        } else if (incomingByte == cleanPacket(ACK)) {
+        } else if (incomingByte == ACK) {
           //dprintf("ACK for buffer length received");
           //dprintf("dataSender sending parity bit");
           Serial2.write(evenParityBit);
@@ -331,13 +328,13 @@ void dataSender(void *p) {
             incomingByte = Serial2.read();
             //clearRxBuffer();
 
-            if (incomingByte == cleanPacket(DISCONN_REQ)) {
+            if (incomingByte == DISCONN_REQ) {
               //dprintf("- Disconnection Request received");
               xEventGroupSetBits(flagGroup, BIT_0);
-            } else if (incomingByte == cleanPacket(ACK)) {
+            } else if (incomingByte == ACK) {
               // Do nothing
               //dprintf("- ACK received");
-            } else if (incomingByte == cleanPacket(NAK)) {
+            } else if (incomingByte == NAK) {
               xSemaphoreGive(queueSemaphore);   // Initiate rerun of dataSender
               //dprintf("- NAK received");
             } else {
@@ -371,7 +368,7 @@ void connHandler(void *p) {
       //Serial.println(incomingByte);
       clearRxBuffer();
 
-      if (incomingByte == cleanPacket(CONN_REQ)) { // When incoming byte is CONN_REQ
+      if (incomingByte == CONN_REQ) { // When incoming byte is CONN_REQ
         //dprintf("Send ACK to RPi");
         Serial2.write(ACK);
         Serial2.flush();
@@ -382,7 +379,7 @@ void connHandler(void *p) {
           incomingByte = Serial2.read();
           clearRxBuffer();
         }
-        if (!hasTimeout && incomingByte == cleanPacket(ACK)) {
+        if (!hasTimeout && incomingByte == ACK) {
           //dprintf("Receive ACK from RPi");
           //dprintf("-- Connected --");
 
@@ -400,7 +397,7 @@ void connHandler(void *p) {
             clearRxBuffer();
           }
 
-          if (!hasTimeout && incomingByte == cleanPacket(ACK)) {
+          if (!hasTimeout && incomingByte == ACK) {
             //dprintf("Receive ACK for disconnection ACK from RPi");
             //dprintf("-- Disconnected --");
           } else {

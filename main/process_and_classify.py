@@ -32,10 +32,8 @@ ser = serial.Serial('/dev/ttyAMA0', 57600) #open port with baud rate
 
 #############################====Ronald====#############################
 
-size = 2.4
-sampling_period = 30.0
 overlap = 50.0
-default_model = "random_sp30_ws2_4_o50_final_fs80.pkl"
+default_model = "random_sp30_ws1_5_o50_final_fs50.pkl"
 move_num = 0
 
 send_time = multiprocessing.Value("d", time.time())
@@ -328,7 +326,7 @@ def send(dance_result, s, voltage, current, power, energy, curTime):
     msg = s.send(ct)
 
 def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
-    if (time.time() - send_time.value >= 5):
+    if (time.time() - send_time.value >= 4):
         start_time = time.time()
         tempArr = temp
         df = pd.DataFrame(tempArr)
@@ -418,7 +416,8 @@ def segment(data, size = 100, overlap = 50.0):
 
     return all_segments
 
-frame_size = window_length(size, sampling_period)
+#frame_size = window_length(size, sampling_period)
+frame_size = 60
 increment = int(frame_size - math.floor(frame_size * (overlap / 100.0)))
 start = 0
 end = int(start + frame_size)
@@ -507,7 +506,7 @@ while True:
                     datasets.append(tmpArr)
                     
                     # start_delay = 60
-                    start_delay = 50
+                    start_delay = 55
                     
                     if not_first == False and time.time() - send_time.value >= start_delay:
                         not_first = True

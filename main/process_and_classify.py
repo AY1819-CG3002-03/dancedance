@@ -35,7 +35,11 @@ ser = serial.Serial('/dev/ttyAMA0', 57600) #open port with baud rate
 size = 2.4
 sampling_period = 30.0
 overlap = 50.0
-default_model = "random_sp30_ws1_8_o50_flex_neutral_everyone_fs80.pkl"
+default_model = "random_sp30_ws2_4_o50_final_fs80.pkl"
+move_num = 0
+
+send_time = multiprocessing.Value("d", time.time())
+not_first = False
 
 # Take in sys.argv
 host = sys.argv[1]
@@ -56,7 +60,7 @@ else:
     
 
 def map(res):
-    label_map = ["wipers", "turnclap", "sidestep", "chicken", "number7", "neutral"]
+    label_map = ["wipers", "turnclap", "sidestep", "chicken", "number7","swing", "salute", "numbersix", "mermaid", "cowboy", "logout"]
     return label_map[res-1]
 
 
@@ -268,6 +272,7 @@ def input_conversion(temp):
 
 
 def classify(clf, input):
+    print(clf.predict_proba(input))
     return clf.predict(input)[0]
 
 
@@ -311,7 +316,7 @@ def simulate(dance_file, sampling_period, window_size, overlap, clf_file):
 
 
 def send(dance_result, s, voltage, current, power, energy, curTime):
-    private_msg = "#{} | {}V | {}A | {}W | {}Wh | {}".format(dance_result, voltage, current, power, energy, curTime)  # 34 bytes
+    private_msg = "#{}|{}V|{}A|{}W|{}Wh|{}".format(dance_result, voltage, current, power, energy, curTime)  # 34 bytes
     private_msg = bytes(private_msg, 'utf-8')
     padding_character = "{"
     secret_key = b"sixteen byte key"
@@ -323,32 +328,75 @@ def send(dance_result, s, voltage, current, power, energy, curTime):
     msg = s.send(ct)
 
 def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
-    if (time.time() - send_time.value >= 4):
+    if (time.time() - send_time.value >= 5):
         start_time = time.time()
         tempArr = temp
         df = pd.DataFrame(tempArr)
         df.columns = ["acc_x", "acc_y", "acc_z",
                       "gyro_x", "gyro_y", "gyro_z",
                       "flex_index", "flex_pinky"]
-        if flex:
-            features = calc_features_flex(df)
-        else:
-            features = calc_features(df)
-        norm_features = preprocessing.normalize([features])
-        res = classify(clf, norm_features)
         
+        #features = calc_features_flex(df)
+        features = calc_features(df)
+        norm_features = preprocessing.normalize([features])
+        
+        res = clf.predict(norm_features)[0] 
         res_string = map(int(res))
+        
+        probs = clf.predict_proba(norm_features)
+        
+        second_highest = 0
+        second_highest_idx = 0
+        for i in range(probs.shape[1]):
+            if probs[0][i] > second_highest and probs[0][i] != probs[0][int(res)-1]:
+                second_highest = probs[0][i]
+                second_highest_idx = i
+        
+        global move_num
+        move_num += 1
+                
+        with open("results_log.txt", "a") as f:
+            f.write("Move no. {}\n".format(move_num))
+            f.write("{}\n".format(probs))
+            f.write("Highest Prob: {}\n".format(res_string))
+            f.write("2nd Highest Prob: {} {}\n".format(map(int(second_highest_idx)),second_highest))
+            #f.write("Elapsed time in wrapper: {}\n".format(time.time() - start_time))
+            f.write("Elapsed time since last send: {}\n\n".format(time.time() - send_time.value))
+            #f.write("Current time: {}\n".format(time.time()))
+            
+        print(probs)
         print("This is the returned class: {}".format(res_string))
         print("Elapsed time in wrapper: {}".format(time.time() - start_time))
         print("Elapsed time since last send: {}".format(time.time() - send_time.value))
         print("Current time: {}\n".format(time.time()))
-        # if sent.value != 1:
+            
         send(res_string, s, voltage, current, power, energy, time.time())
         send_time.value = time.time()
-        """    sent.value = 1
-        elif res == "neutral" and sent.value == 1:
-            sent.value = 0
-        """
+        
+def wrapper_prob(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
+    threshold = 0.7
+    tempArr = temp
+    df = pd.DataFrame(tempArr)
+    df.columns = ["acc_x", "acc_y", "acc_z",
+                  "gyro_x", "gyro_y", "gyro_z",
+                  "flex_index", "flex_pinky"]
+    features = calc_features_flex(df)
+    #features = calc_features(df)
+    norm_features = preprocessing.normalize([features])
+    prob = clf.predict_proba(norm_features)
+    if np.amax(prob) >= threshold:
+        res = np.argmax(prob)
+        res_string= map(int(res))
+        
+        print("{}".format(clf.predict_proba(norm_features)))
+        print("This is the returned class: {}".format(res_string))
+        
+        with open("results_log_proba.txt", "a") as f:
+            f.write("{}\n".format(clf.predict_proba(norm_features)))
+            f.write("This is the returned class: {}\n".format(res_string))
+            
+        send(res_string, s, voltage, current, power, energy, time.time())
+        send_time.value = time.time()
 
 # takes in single dance dataframe
 # returns a list of segments for dataframe passed in
@@ -369,42 +417,6 @@ def segment(data, size = 100, overlap = 50.0):
         end = start + size
 
     return all_segments
-
-def wrapper2(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
-    start_time = time.time()
-    tempArr = temp
-    df = pd.DataFrame(tempArr)
-    df.columns = ["acc_x", "acc_y", "acc_z",
-                  "gyro_x", "gyro_y", "gyro_z",
-                  "flex_index", "flex_pinky"]
-    frames = segment(df)
-    print("Frames size: {}".format(len(frames)))
-    res_buffer = []
-    for frame in frames:
-        if flex:
-            features = calc_features_flex(frame)
-        else:
-            features = calc_features(frame)
-        norm_features = preprocessing.normalize([features])
-        res = classify(clf, norm_features)
-        print("This is the class: {}".format(map(int(res))))
-        res_buffer.append(res)
-    
-    voted = np.bincount(res_buffer).argmax()
-    
-    res_string = map(int(voted))
-    if sent.value != 1 and res_string != "neutral":
-        print("This is the voted class: {}".format(res_string))
-        print("Elapsed time in wrapper: {}".format(time.time() - start_time))
-        print("Elapsed time since last send: {}".format(time.time() - send_time.value))
-        print("Current time: {}".format(time.time()))
-        print()
-        send(res_string, s, voltage, current, power, energy, time.time())
-        send_time.value = time.time()
-        sent.value = 1
-    elif res_string == "neutral" and sent.value == 1:
-        sent.value = 0
-
 
 frame_size = window_length(size, sampling_period)
 increment = int(frame_size - math.floor(frame_size * (overlap / 100.0)))
@@ -437,6 +449,7 @@ while True:
     dataToSend = int(data).to_bytes(1,byteorder='big')
     ser.write(dataToSend)
     ser.flush()
+    
   
     received_data = ser.read()
     received_data = int.from_bytes(received_data,byteorder='big')
@@ -456,7 +469,7 @@ while True:
         power = 0
         energy = 0
         prevTime = time.time()
-        send_time = multiprocessing.Value("d", time.time())
+        
         sent = multiprocessing.Value("i", 0)
         while True:
             try:
@@ -493,24 +506,22 @@ while True:
 
                     datasets.append(tmpArr)
                     
+                    # start_delay = 60
+                    start_delay = 50
                     
-                    if (len(datasets) == (frame_size)):
+                    if not_first == False and time.time() - send_time.value >= start_delay:
+                        not_first = True
+                        if len(datasets) >= frame_size:
+                            datasets = datasets[-frame_size:]
+                    
+                    if len(datasets) == frame_size and not_first == True:
+                    #if (len(datasets) % (frame_size) == 0):
                         temp = datasets[start:end]
                         datasets = datasets[increment:]
                         
                         p = multiprocessing.Process(target=wrapper, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent))
                         p.start()
-                    
-                    """
-                    if (len(datasets) == (frame_size + 2*increment)):
-                        temp = datasets
-                        slice_index = frame_size + increment 
-                        datasets = datasets[slice_index: ]
-                        p = multiprocessing.Process(target=wrapper2, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent))
-                        p.start()
-                        """
-                    
-                    
+                               
                     ser.write(ACK.to_bytes(1,byteorder='big')) # transmit acknowledge
                 else:
                     i -= 1

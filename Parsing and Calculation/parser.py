@@ -19,6 +19,7 @@ from sklearn import preprocessing
 from sklearn.model_selection import cross_val_score, train_test_split
 import timeit
 import multiprocessing
+from sklearn.metrics import confusion_matrix
 
 # parse using pandas seems to be faster
 def parse(dance):
@@ -179,7 +180,7 @@ def window_length(size, period):
 
 # input: dataframe
 # return: int list
-def calc_features(frame):
+def calc_features_flex(frame):
 
     acc_x = frame["acc_x"]
     acc_y = frame["acc_y"]
@@ -245,6 +246,24 @@ def calc_features(frame):
     gyro_iqr_x = calc.iqr(gyro_x)
     gyro_iqr_y = calc.iqr(gyro_y)
     gyro_iqr_z = calc.iqr(gyro_z)
+
+    mean_flex_index = calc.mean(flex_index)
+    mean_flex_pinky = calc.mean(flex_pinky)
+
+    std_flex_index = calc.std(flex_index)
+    std_flex_pinky = calc.std(flex_pinky)
+
+    mad_flex_index = calc.mad(flex_index)
+    mad_flex_pinky = calc.mad(flex_pinky)
+
+    max_flex_index = calc.max(flex_index)
+    max_flex_pinky = calc.max(flex_pinky)
+
+    min_flex_index = calc.min(flex_index)
+    min_flex_pinky = calc.min(flex_pinky)
+
+    iqr_flex_index = calc.iqr(flex_index)
+    iqr_flex_pinky = calc.iqr(flex_pinky)
     
     feature_frame = [
         acc_mean_x, acc_mean_y, acc_mean_z,
@@ -260,7 +279,13 @@ def calc_features(frame):
         gyro_max_x, gyro_max_y, gyro_max_z,
         gyro_min_x, gyro_min_y, gyro_min_z,
         gyro_iqr_x, gyro_iqr_y, gyro_iqr_z,
-        gyro_correlation_1, gyro_correlation_2, gyro_correlation_3
+        gyro_correlation_1, gyro_correlation_2, gyro_correlation_3,
+        mean_flex_index, mean_flex_pinky,
+        std_flex_index, std_flex_pinky,
+        mad_flex_index, mad_flex_pinky,
+        max_flex_index, max_flex_pinky,
+        min_flex_index, min_flex_pinky,
+        iqr_flex_index, iqr_flex_pinky
     ]
 
     return feature_frame
@@ -292,7 +317,7 @@ def gen_xy(dances, X_file, y_file):
 
         for item in segments_dance:
             # Calculate features for each data segment
-            feature_frame = calc_features(item)
+            feature_frame = calc_features_flex(item)
             temp_test = pd.DataFrame(feature_frame)
 
             # Conditional breakpoint was set here because under certain window sizes, the duplicate values in
@@ -350,7 +375,7 @@ def wrapper(clf, temp):
     df.columns = ["acc_x", "acc_y", "acc_z",
                   "gyro_x", "gyro_y", "gyro_z",
                   "flex_index", "flex_pinky"]
-    features = calc_features(df)
+    features = calc_features_flex(df)
     print(classify(clf, [features]))
     return classify(clf, [features])
 
@@ -387,10 +412,10 @@ def simulate(dance_file, sampling_period, window_size, overlap, clf_file):
     print("END + {} + {}".format(end, length))
 
 if __name__ == "__main__":
-    dance_files = "all_dances.txt"
-    X_file = "X_train.txt"
-    y_file = "y_train.txt"
-    #
+    dance_files = "all_dances_3.txt"
+    X_file = "X_train_everyone_five_new_fs_60.txt"
+    y_file = "y_train_everyone_five_new_fs_60.txt"
+    # #
     dances = obtain_data_map(dance_files)
 
     # Dont have to care about flex sensor data for now because we dont have dance moves that use them yet
@@ -403,40 +428,40 @@ if __name__ == "__main__":
     sampling_period = 30.0
 
     # in seconds
-    window_size = 2
+    window_size = 1.8
 
     # in floating point or decimal numbers
     overlap = 50.0
 
     # Need to guarantee that the window_size is not larger than smallest dataframe
     min = min_length(dances)
-
+    #
     length = window_length(window_size, sampling_period)
-
+    #
     if (check_size(min, length)):
         # start processing
         gen_xy(dances, X_file, y_file)
     else:
         print("Check size failed\nSpecified window length is larger than smallest dance dataframe size")
-
-    # Start machine learning
-    # X_train, X_test, y_train, y_test = train_test_split(np.loadtxt(X_file), np.loadtxt(y_file), train_size=0.7, random_state=42)
-
-    X_train_file = "X_train.txt"
-    y_train_file = "y_train.txt"
-    # X_test_file = "X_test4.txt"
-    # y_test_file = "y_test4.txt"
     #
-    X_train = np.loadtxt(X_train_file)
-    y_train = np.loadtxt(y_train_file)
-    # X_test = np.loadtxt(X_test_file)
-    # y_test = np.loadtxt(y_test_file)
-
+    # Shuffle the data
+    # X_train, X_test, y_train, y_test = train_test_split(np.loadtxt(X_file), np.loadtxt(y_file), test_size=0.9999, random_state=42)
+    # #
+    # X_train_file = "X_train_bla.txt"
+    # y_train_file = "y_train_bla.txt"
+    # X_test_file = "X_test_flex.txt"
+    # y_test_file = "y_test_flex.txt"
+    # #
+    # # X_train = np.loadtxt(X_train_file)
+    # # y_train = np.loadtxt(y_train_file)
+    # # X_test = np.loadtxt(X_test_file)
+    # # y_test = np.loadtxt(y_test_file)
+    # #
     # x1 = open(X_train_file, "w")
     # x2 = open(X_test_file, "w")
     # y1 = open(y_train_file, "w")
     # y2 = open(y_test_file, "w")
-    #
+    # #
     # np.savetxt(x1, X_train)
     # np.savetxt(x2, X_test)
     # np.savetxt(y1, y_train)
@@ -447,12 +472,12 @@ if __name__ == "__main__":
     # y1.close()
     # y2.close()
     #
-    # print("Finished saving files")
+    print("Finished saving files")
 
-    clf1 = KNeighborsClassifier(n_neighbors=5)
-    clf2 = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-    clf3 = LogisticRegression()
-    clf4 = LinearSVC(multi_class="ovr")
+    # clf1 = KNeighborsClassifier(n_neighbors=5)
+    # clf2 = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    # clf3 = LogisticRegression()
+    # clf4 = LinearSVC(multi_class="ovr")
 
     # scores1 = cross_val_score(clf1, X_train, y_train, cv=10)
     # scores2 = cross_val_score(clf2, X_train, y_train, cv=10)
@@ -464,15 +489,23 @@ if __name__ == "__main__":
     # print("LogisticRegression accuracy: {}".format(scores3.mean()))
     # print("LinearSVC accuracy: {}".format(scores4.mean()))
 
-    clf1.fit(X_train, y_train)
-    clf2.fit(X_train, y_train)
-    clf3.fit(X_train, y_train)
-    clf4.fit(X_train, y_train)
+    # clf1.fit(X_train, y_train)
+    # clf2.fit(X_train, y_train)
+    # clf3.fit(X_train, y_train)
+    # clf4.fit(X_train, y_train)
+    #
+    # a = clf1.predict_proba(X_test)
+    # b = clf2.predict_proba(X_test)
+    # c = clf3.predict_proba(X_test)
+    # d = clf4.predict_proba(X_test)
 
-    joblib.dump(clf1, "knn_sp30_ws2_o50_with_ZY.pkl", protocol=2)
-    joblib.dump(clf2, "random_sp30_ws2_o50_with_ZY.pkl", protocol=2)
-    joblib.dump(clf3, "log_sp30_ws2_o50_with_ZY.pkl", protocol=2)
-    joblib.dump(clf4, "linear_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    # print("Accuracy of random forest: {}".format(clf2.score(X_test, y_test)))
+    # print(confusion_matrix(y_test, clf2.predict(X_test)))
+
+    # joblib.dump(clf1, "knn_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    # joblib.dump(clf2, "random_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    # joblib.dump(clf3, "log_sp30_ws2_o50_with_ZY.pkl", protocol=2)
+    # joblib.dump(clf4, "linear_sp30_ws2_o50_with_ZY.pkl", protocol=2)
 
     # Test ML speed
     # print(timeit.timeit("test1(clf1, X_test, y_test, X_train, y_train)",number=1, setup='from __main__ import test1, X_test, y_test, X_train, y_train, clf1; clf1.fit(X_train, y_train)'))
@@ -490,3 +523,21 @@ if __name__ == "__main__":
     # print(y_test)
 
     # simulate("ronald_number7_1.txt", sampling_period, window_size, overlap, "log.pkl")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

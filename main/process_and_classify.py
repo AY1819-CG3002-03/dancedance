@@ -326,7 +326,7 @@ def send(dance_result, s, voltage, current, power, energy, curTime):
     msg = s.send(ct)
 
 def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
-    if (time.time() - send_time.value >= 4):
+    if (time.time() - send_time.value >= 4.5):
         start_time = time.time()
         tempArr = temp
         df = pd.DataFrame(tempArr)
@@ -417,7 +417,7 @@ def segment(data, size = 100, overlap = 50.0):
     return all_segments
 
 #frame_size = window_length(size, sampling_period)
-frame_size = 60
+frame_size = 50
 increment = int(frame_size - math.floor(frame_size * (overlap / 100.0)))
 start = 0
 end = int(start + frame_size)
@@ -506,12 +506,12 @@ while True:
                     datasets.append(tmpArr)
                     
                     # start_delay = 60
-                    start_delay = 55
+                    start_delay = 60
                     
                     if not_first == False and time.time() - send_time.value >= start_delay:
                         not_first = True
                         if len(datasets) >= frame_size:
-                            datasets = datasets[-frame_size:]
+                            datasets = []
                     
                     if len(datasets) == frame_size and not_first == True:
                     #if (len(datasets) % (frame_size) == 0):

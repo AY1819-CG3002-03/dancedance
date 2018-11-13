@@ -33,7 +33,7 @@ ser = serial.Serial('/dev/ttyAMA0', 57600) #open port with baud rate
 #############################====Ronald====#############################
 
 overlap = 50.0
-default_model = "random_sp30_ws1_5_o50_final_fs50.pkl"
+default_model = "random_sp30_ws1_5_o50_final_fs40.pkl"
 move_num = 0
 
 send_time = multiprocessing.Value("d", time.time())
@@ -58,7 +58,7 @@ else:
     
 
 def map(res):
-    label_map = ["wipers", "turnclap", "sidestep", "chicken", "number7","swing", "salute", "numbersix", "mermaid", "cowboy", "logout"]
+    label_map = ["wipers", "turnclap", "sidestep", "chicken", "number7","swing", "salute", "numbersix", "mermaid", "cowboy", "logout", "neutral"]
     return label_map[res-1]
 
 
@@ -326,7 +326,7 @@ def send(dance_result, s, voltage, current, power, energy, curTime):
     msg = s.send(ct)
 
 def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
-    if (time.time() - send_time.value >= 4.5):
+    if (time.time() - send_time.value >= 3.6):
         start_time = time.time()
         tempArr = temp
         df = pd.DataFrame(tempArr)
@@ -341,8 +341,9 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
         res = clf.predict(norm_features)[0] 
         res_string = map(int(res))
         
-        probs = clf.predict_proba(norm_features)
         
+        probs = clf.predict_proba(norm_features)
+        """
         second_highest = 0
         second_highest_idx = 0
         for i in range(probs.shape[1]):
@@ -352,7 +353,8 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
         
         global move_num
         move_num += 1
-                
+        """
+        """
         with open("results_log.txt", "a") as f:
             f.write("Move no. {}\n".format(move_num))
             f.write("{}\n".format(probs))
@@ -361,8 +363,9 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
             #f.write("Elapsed time in wrapper: {}\n".format(time.time() - start_time))
             f.write("Elapsed time since last send: {}\n\n".format(time.time() - send_time.value))
             #f.write("Current time: {}\n".format(time.time()))
-            
+           """ 
         print(probs)
+        
         print("This is the returned class: {}".format(res_string))
         print("Elapsed time in wrapper: {}".format(time.time() - start_time))
         print("Elapsed time since last send: {}".format(time.time() - send_time.value))
@@ -370,6 +373,42 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
             
         send(res_string, s, voltage, current, power, energy, time.time())
         send_time.value = time.time()
+        
+def wrapper_neutral(clf, temp, s, voltage, current, power, energy, send_time, flex, sent, transition_counter):
+    
+    start_time = time.time()
+    tempArr = temp
+    df = pd.DataFrame(tempArr)
+    df.columns = ["acc_x", "acc_y", "acc_z",
+                  "gyro_x", "gyro_y", "gyro_z",
+                  "flex_index", "flex_pinky"]
+    
+    #features = calc_features_flex(df)
+    features = calc_features(df)
+    norm_features = preprocessing.normalize([features])
+    
+    res = clf.predict(norm_features)[0] 
+    res_string = map(int(res))
+    
+    if "neutral" not in res_string and sent.value == 0:
+        if (transition_counter.value >= 1):
+            print("This is the returned class: {}".format(res_string))
+            print("Elapsed time in wrapper: {}".format(time.time() - start_time))
+            print("Elapsed time since last send: {}".format(time.time() - send_time.value))
+            print("Current time: {}\n".format(time.time()))
+            send(res_string, s, voltage, current, power, energy, time.time())
+            send_time.value = time.time()
+            sent.value = 1
+        else:
+            transition_counter.value += 1
+    elif "neutral" in res_string:
+        print("NEUTRAL REACHED")
+        print("Elapsed time in wrapper: {}".format(time.time() - start_time))
+        sent.value = 0
+        transition_counter.value = 0
+        
+    
+    
         
 def wrapper_prob(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
     threshold = 0.7
@@ -417,7 +456,7 @@ def segment(data, size = 100, overlap = 50.0):
     return all_segments
 
 #frame_size = window_length(size, sampling_period)
-frame_size = 50
+frame_size = 40
 increment = int(frame_size - math.floor(frame_size * (overlap / 100.0)))
 start = 0
 end = int(start + frame_size)
@@ -469,6 +508,7 @@ while True:
         energy = 0
         prevTime = time.time()
         
+        transition_counter = multiprocessing.Value("i", 0)
         sent = multiprocessing.Value("i", 0)
         while True:
             try:
@@ -519,6 +559,7 @@ while True:
                         datasets = datasets[increment:]
                         
                         p = multiprocessing.Process(target=wrapper, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent))
+                        #p = multiprocessing.Process(target=wrapper_neutral, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent, transition_counter))
                         p.start()
                                
                     ser.write(ACK.to_bytes(1,byteorder='big')) # transmit acknowledge

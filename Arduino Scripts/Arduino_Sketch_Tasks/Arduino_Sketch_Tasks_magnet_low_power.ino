@@ -330,7 +330,7 @@ void sensorReader(void *p) {
     if (fabs(compassReading) <= 25) {
       readingsArray[8] = CHICKEN_POSITION;
     } else {
-      readingsArray[8] = MERMAID_POSITION
+      readingsArray[8] = MERMAID_POSITION;
     }
     /*
     // ----- Read the index finger's flex sensor -------

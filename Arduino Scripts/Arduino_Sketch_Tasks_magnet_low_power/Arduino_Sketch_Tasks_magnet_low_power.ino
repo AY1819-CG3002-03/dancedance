@@ -3,6 +3,8 @@
 #include "semphr.h"
 #include "event_groups.h"
 #include "MPU9250.h"
+#include <avr/power.h>
+
 
 /*
   By using Arduino_FreeRTOS library, one tick has been defined as 15ms
@@ -43,6 +45,7 @@ void dprintf(const char *fmt, ...) {
 #define DISCONN_REQ 2
 #define ACK 3
 #define NAK 4
+#define SETUP_DONE 5
 
 // Task Variables
 // The period of each tick is 15ms
@@ -65,12 +68,15 @@ static void connHandler(void *p);
 
 
 // ===================== values for Reading sensors ==============================
+// Constants for compass readings
+#define RAD_TO_DEG 57.295779513082320876798154814105
+#define CHICKEN_POSITION 0
+#define MERMAID_POSITION 1
+
 const float RS = 0.1;          // Shunt resistor value (in ohms)
-const float VOLTAGE_REF = 4.7;  // Reference voltage for analog read
-const int INDEX_FLEX_PIN = A1; // Pin connected to voltage divider output for flex sensor on index finger
-const int PINKY_FLEX_PIN = A2; // Pin connected to voltage divider output for flex sensor on pinky finger
-const int VOLTAGE_SENSOR_PIN = A5;
-const int CURRENT_SENSOR_PIN = A4;  // Input pin for measuring Vout
+const int VOLTAGE_REF = 5;  // Reference voltage for analog read
+const int VOLTAGE_SENSOR_PIN = A0;  // Input pin for measuring voltage
+const int CURRENT_SENSOR_PIN = A1;  // Input pin for measuring current
 
 // Measure the voltage at 5V and the actual resistance of your
 // 10k resistor, and enter them below:
@@ -94,9 +100,11 @@ long prevTime = 0;
 long timeElapsed = 0;
 float power = 0;
 float energy = 0;
-const int NO_OF_READINGS = 8;
+const int NO_OF_READINGS = 10;
 float readingsArray[NO_OF_READINGS];  // Used to pass readings between tasks
 byte readingsBuffer[100];
+float compassOffset = 0;
+float compassReading= 0;
 
 // an MPU9250 object with the MPU-9250 sensor on I2C bus 0 with address 0x68
 MPU9250 IMU(Wire, 0x68);
@@ -149,12 +157,60 @@ boolean serialTimeout() {
 
 // ==================== Setup ================================
 void setup() {
+  // ------------- Disabling unused pins to save power ----------------
+  pinMode(A2, OUTPUT);
+  pinMode(A3, OUTPUT);
+  pinMode(A4, OUTPUT);
+  pinMode(A5, OUTPUT);
+  pinMode(A6, OUTPUT);
+  pinMode(A7, OUTPUT);
+  pinMode(A8, OUTPUT);
+  pinMode(A9, OUTPUT);
+  pinMode(A10, OUTPUT);
+  pinMode(A11, OUTPUT);
+  pinMode(A12, OUTPUT);
+  pinMode(A13, OUTPUT);
+  pinMode(A14, OUTPUT);
+  pinMode(A15, OUTPUT);
+  digitalWrite(A2, LOW);
+  digitalWrite(A3, LOW);
+  digitalWrite(A4, LOW);
+  digitalWrite(A5, LOW);
+  digitalWrite(A6, LOW);
+  digitalWrite(A7, LOW);
+  digitalWrite(A8, LOW);
+  digitalWrite(A9, LOW);
+  digitalWrite(A10, LOW);
+  digitalWrite(A11, LOW);
+  digitalWrite(A12, LOW);
+  digitalWrite(A13, LOW);
+  digitalWrite(A14, LOW);
+  digitalWrite(A15, LOW);  
+  for (int i = 0; i <= 15; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+  for (int i = 18; i <= 19; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+  for (int i = 22; i <= 53; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+  power_spi_disable();
+  power_usart0_disable();
+  power_usart1_disable();
+  power_usart3_disable();
+
+  
   Serial.begin(57600);
   Serial2.begin(57600);
   Serial2.println("Setup starts");
   Serial2.flush();
 
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
 
   // ---- Tasks setup: Higher numerical value, higher priority ----
   queueSemaphore = xSemaphoreCreateCounting(1, 0); //Used this instead of others as initial count can be set
@@ -164,14 +220,18 @@ void setup() {
   xTaskCreate(connHandler, "connHandler", STACK_SIZE, NULL, 3, NULL);
 
   // ------------- Sensors setup ----------------
-  pinMode(INDEX_FLEX_PIN, INPUT);
-  pinMode(PINKY_FLEX_PIN, INPUT);
   pinMode(VOLTAGE_SENSOR_PIN, INPUT);
+  pinMode(CURRENT_SENSOR_PIN, INPUT);
   //while(!Serial) {}
 
   // start communication with IMU
   status = IMU.begin();
   if (status < 0) {
+    //Serial.println("IMU initialization unsuccessful");
+    //Serial.println("Check IMU wiring or try cycling power");
+    //Serial.print("Status: ");
+    //Serial.println(status);
+
     Serial2.println("Check IMU wiring or try cycling power");
     Serial2.flush();
     Serial2.println("IMU initialization unsuccessful");
@@ -197,6 +257,16 @@ void setup() {
   IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
   // setting SRD to 19 for a 50 Hz update rate
   IMU.setSrd(19);
+  Serial2.println("Acquiring offset, standby in chicken position.");
+  Serial2.flush();
+  delay(5000);
+  // getting offset for compass heading
+  IMU.readSensor();
+  compassOffset = atan2(IMU.getMagY_uT() * -1, IMU.getMagX_uT() * -1) * RAD_TO_DEG;
+  Serial2.print("Offset is: ");
+  Serial2.flush();
+  Serial2.println(compassOffset, 6);
+  
   prevTime = millis();
   Serial2.println("Done");
   Serial2.flush();
@@ -233,13 +303,59 @@ void sensorReader(void *p) {
     // ----- Read the IMU sensor -------
     IMU.readSensor();
 
+    //Serial.print(IMU.getAccelX_mss(), 6);
+    //Serial.print(" ");
+    //Serial.print(IMU.getAccelY_mss(), 6);
+    //Serial.print(" ");
+    //Serial.print(IMU.getAccelZ_mss(), 6);
+    //Serial.print(" ");
+    //Serial.print(IMU.getGyroX_rads(), 6);
+    //Serial.print(" ");
+    //Serial.print(IMU.getGyroY_rads(), 6);
+    //Serial.print(" ");
+    //Serial.print(IMU.getGyroZ_rads(), 6);
+    //Serial.print(" ");
+
+    compassReading = atan2(IMU.getMagY_uT() * -1, IMU.getMagX_uT() * -1) * RAD_TO_DEG;   
+    compassReading -= compassOffset;
+    
     // Write sensor readings to global array: readingsArray
     readingsArray[0] = IMU.getAccelX_mss();
     readingsArray[1] = IMU.getAccelY_mss();
     readingsArray[2] = IMU.getAccelZ_mss();
     readingsArray[3] = IMU.getGyroX_rads();
     readingsArray[4] = IMU.getGyroY_rads();
-    readingsArray[5] = IMU.getGyroZ_rads();
+    readingsArray[5] = IMU.getGyroZ_rads();  
+
+    if (fabs(compassReading) <= 25) {
+      readingsArray[8] = CHICKEN_POSITION;
+    } else {
+      readingsArray[8] = MERMAID_POSITION;
+    }
+    /*
+    // ----- Read the index finger's flex sensor -------
+    // Read the ADC of index finger’s flex sensor, and calculate voltage and resistance from it
+    indexADC = analogRead(INDEX_FLEX_PIN);
+    indexV = indexADC * VCC / 1023.0;
+    indexR = R_DIV_INDEX * (VCC / indexV - 1.0);
+
+    // Use the calculated resistance to estimate the sensor's bend angle:
+    float indexAngle = map(indexR, INDEX_STRAIGHT, INDEX_BEND, 0, 90.0);
+    //Serial.print(indexAngle);
+    //Serial.print(" ");
+    readingsArray[6] = indexAngle;
+
+    // ----- Read the pinky finger's flex sensor -------
+    // Read the ADC of pinky’s flex sensor, and calculate voltage and resistance from it
+    int pinkyADC = analogRead(PINKY_FLEX_PIN);
+    float pinkyV = pinkyADC * VCC / 1023.0;
+    float pinkyR = R_DIV_PINKY * (VCC / pinkyV - 1.0);
+    // Use the calculated resistance to estimate the sensor's bend angle:
+    float pinkyAngle = map(pinkyR, PINKY_STRAIGHT, PINKY_BEND, 0, 90.0);
+    //Serial.print(pinkyAngle);
+    //Serial.println();
+    readingsArray[7] = pinkyAngle;
+    */
 
     //dprintf("Done with reading sensors");
     xSemaphoreGive(queueSemaphore);
@@ -316,10 +432,8 @@ void connHandler(void *p) {
 
   while (1) {
     //dprintf("Checking for connection request");
-    digitalWrite(LED_BUILTIN, LOW);
     if (Serial2.available()) {
       delay(1);
-      digitalWrite(LED_BUILTIN, HIGH);
       incomingByte = Serial2.read();
       //Serial.println(incomingByte);
       clearRxBuffer();

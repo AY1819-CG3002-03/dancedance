@@ -66,7 +66,7 @@ static void connHandler(void *p);
 
 // ===================== values for Reading sensors ==============================
 const float RS = 0.1;          // Shunt resistor value (in ohms)
-const float VOLTAGE_REF = 4.7;  // Reference voltage for analog read
+const int VOLTAGE_REF = 5;  // Reference voltage for analog read
 const int INDEX_FLEX_PIN = A1; // Pin connected to voltage divider output for flex sensor on index finger
 const int PINKY_FLEX_PIN = A2; // Pin connected to voltage divider output for flex sensor on pinky finger
 const int VOLTAGE_SENSOR_PIN = A5;
@@ -219,7 +219,7 @@ void sensorReader(void *p) {
 
     // ------ Reading voltage and current sensor data ------
     voltageValue = analogRead(VOLTAGE_SENSOR_PIN);    // Reading voltage value
-    voltage = 2 * voltageValue * 5.0 / 1024;    // Remap the ADC value into a voltage number (5V reference)
+    voltage = 2 * voltageValue * 4.7 / 1024;    // Remap the ADC value into a voltage number (4.7V reference)
     readingsArray[6] = voltage;
 
     // Follow the equation given by the INA169 datasheet to determine the current flowing through RS

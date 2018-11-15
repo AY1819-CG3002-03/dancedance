@@ -326,7 +326,7 @@ def send(dance_result, s, voltage, current, power, energy, curTime):
     ct = base64.b64encode(iv + ct_bytes)
     msg = s.send(ct)
 
-def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
+def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent, compassBearing):
     if (time.time() - send_time.value >= 3.6):
         start_time = time.time()
         tempArr = temp
@@ -564,7 +564,7 @@ while True:
                         temp = datasets[start:end]
                         datasets = datasets[increment:]
                         
-                        p = multiprocessing.Process(target=wrapper, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent))
+                        p = multiprocessing.Process(target=wrapper, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent, compassBearing))
                         #p = multiprocessing.Process(target=wrapper_neutral, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent, transition_counter))
                         p.start()
                                

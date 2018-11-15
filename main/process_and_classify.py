@@ -33,7 +33,7 @@ ser = serial.Serial('/dev/ttyAMA0', 57600) #open port with baud rate
 #############################====Ronald====#############################
 
 overlap = 50.0
-default_model = "random_sp30_ws1_5_o50_final_fs40.pkl"
+default_model = "random_sp30_ws1_5_o50_final_new_fs45.pkl"
 move_num = 0
 
 send_time = multiprocessing.Value("d", time.time())
@@ -72,8 +72,7 @@ def calc_features(frame):
     gyro_x = frame["gyro_x"]
     gyro_y = frame["gyro_y"]
     gyro_z = frame["gyro_z"]
-    flex_index = frame["flex_index"]
-    flex_pinky = frame["flex_pinky"]
+    
 
     gyro_correlation_1 = calc.correlation(gyro_x, gyro_y)
     gyro_correlation_2 = calc.correlation(gyro_x, gyro_z)
@@ -325,14 +324,13 @@ def send(dance_result, s, voltage, current, power, energy, curTime):
     ct = base64.b64encode(iv + ct_bytes)
     msg = s.send(ct)
 
-def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent):
-    if (time.time() - send_time.value >= 3.6):
+def wrapper(clf, temp, s, voltage, current, power, energy, send_time, sent):
+    if (time.time() - send_time.value >=3.6):
         start_time = time.time()
         tempArr = temp
         df = pd.DataFrame(tempArr)
         df.columns = ["acc_x", "acc_y", "acc_z",
-                      "gyro_x", "gyro_y", "gyro_z",
-                      "flex_index", "flex_pinky"]
+                      "gyro_x", "gyro_y", "gyro_z"]
         
         #features = calc_features_flex(df)
         features = calc_features(df)
@@ -343,7 +341,7 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
         
         
         probs = clf.predict_proba(norm_features)
-        """
+        
         second_highest = 0
         second_highest_idx = 0
         for i in range(probs.shape[1]):
@@ -353,8 +351,8 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
         
         global move_num
         move_num += 1
-        """
-        """
+    
+        
         with open("results_log.txt", "a") as f:
             f.write("Move no. {}\n".format(move_num))
             f.write("{}\n".format(probs))
@@ -363,7 +361,7 @@ def wrapper(clf, temp, s, voltage, current, power, energy, send_time, flex, sent
             #f.write("Elapsed time in wrapper: {}\n".format(time.time() - start_time))
             f.write("Elapsed time since last send: {}\n\n".format(time.time() - send_time.value))
             #f.write("Current time: {}\n".format(time.time()))
-           """ 
+           
         print(probs)
         
         print("This is the returned class: {}".format(res_string))
@@ -456,7 +454,7 @@ def segment(data, size = 100, overlap = 50.0):
     return all_segments
 
 #frame_size = window_length(size, sampling_period)
-frame_size = 40
+frame_size = 45
 increment = int(frame_size - math.floor(frame_size * (overlap / 100.0)))
 start = 0
 end = int(start + frame_size)
@@ -475,7 +473,8 @@ print("Please plug in the Arduino power cable.")
 received_str = ""
 while "Done" not in received_str:
 	received_data = ser.readline()
-	print(received_data)
+	if len(received_data) > 0:
+            print(received_data)
 	received_str = received_data.decode("utf-8")
 
 #######################################################################################
@@ -518,6 +517,13 @@ while True:
                 received_data = ser.read()	# Read in parity bit
                 evenParityBit =  int.from_bytes(received_data, byteorder='big')
                 received_data = ser.read(buffLen)
+                #print("Buffer Length:",buffLen,"Received data len",len(received_data))
+                if len(received_data) < buffLen:
+                    print("Len of received_data:",len(received_data))
+                    print("Received_data:",received_data)
+                    ser.reset_input_buffer()
+                    ser.write(ACK.to_bytes(1,byteorder='big'))
+                    continue
 
                 xorBit = 0
                 for b in received_data:
@@ -533,6 +539,7 @@ while True:
                         received_data = received_data[4:]
 
                     voltage = int.from_bytes(received_data[:4],byteorder='little', signed=True)	#Convert byte to int
+                    # print("Read voltage: {}".format(voltage))
                     voltage = voltage / 1000000
                     received_data = received_data[4:]
                     current = int.from_bytes(received_data[:4],byteorder='little', signed=True)	#Convert byte to int
@@ -558,7 +565,7 @@ while True:
                         temp = datasets[start:end]
                         datasets = datasets[increment:]
                         
-                        p = multiprocessing.Process(target=wrapper, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent))
+                        p = multiprocessing.Process(target=wrapper, args=(clf, temp, s, voltage, current, power, energy, send_time, sent))
                         #p = multiprocessing.Process(target=wrapper_neutral, args=(clf, temp, s, voltage, current, power, energy, send_time, flex, sent, transition_counter))
                         p.start()
                                

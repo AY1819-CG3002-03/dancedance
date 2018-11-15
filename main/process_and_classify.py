@@ -552,8 +552,8 @@ while True:
 
                     datasets.append(tmpArr)
                     
-                    # start_delay = 60
-                    start_delay = 60
+                    # start_delay = 55
+                    start_delay = 55
                     
                     if not_first == False and time.time() - send_time.value >= start_delay:
                         not_first = True

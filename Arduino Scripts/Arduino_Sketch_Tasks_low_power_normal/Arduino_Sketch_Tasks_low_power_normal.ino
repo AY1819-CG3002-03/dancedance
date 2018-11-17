@@ -194,12 +194,11 @@ void setup() {
   power_spi_disable();
   power_usart0_disable();
   power_usart1_disable();
-  power_usart3_disable();
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 
   
-  Serial.begin(57600);
+  //Serial.begin(57600);
   Serial2.begin(57600);
   Serial2.println("Setup starts");
   Serial2.flush();
@@ -268,7 +267,7 @@ void sensorReader(void *p) {
 
     // ------ Reading voltage and current sensor data ------
     voltageValue = analogRead(VOLTAGE_SENSOR_PIN);    // Reading voltage value
-    voltage = 2 * voltageValue * 4.7 / 1024;    // Remap the ADC value into a voltage number (4.7V reference)
+    voltage = 2 * voltageValue * 4.85 / 1024;    // Remap the ADC value into a voltage number (4.7V reference)
     readingsArray[6] = voltage;
 
     // Follow the equation given by the INA169 datasheet to determine the current flowing through RS

@@ -3,6 +3,7 @@
 #include "semphr.h"
 #include "event_groups.h"
 #include "MPU9250.h"
+#include <avr/power.h>
 
 /*
   By using Arduino_FreeRTOS library, one tick has been defined as 15ms
@@ -149,12 +150,59 @@ boolean serialTimeout() {
 
 // ==================== Setup ================================
 void setup() {
-  Serial.begin(57600);
+  // ------------ Disable unused pins --------------
+  pinMode(A0, OUTPUT);
+  pinMode(A1, OUTPUT);
+  pinMode(A2, OUTPUT);
+  pinMode(A3, OUTPUT);
+  pinMode(A6, OUTPUT);
+  pinMode(A7, OUTPUT);
+  pinMode(A8, OUTPUT);
+  pinMode(A9, OUTPUT);
+  pinMode(A10, OUTPUT);
+  pinMode(A11, OUTPUT);
+  pinMode(A12, OUTPUT);
+  pinMode(A13, OUTPUT);
+  pinMode(A14, OUTPUT);
+  pinMode(A15, OUTPUT);
+  digitalWrite(A0, LOW);
+  digitalWrite(A1, LOW);
+  digitalWrite(A2, LOW);
+  digitalWrite(A3, LOW);
+  digitalWrite(A6, LOW);
+  digitalWrite(A7, LOW);
+  digitalWrite(A8, LOW);
+  digitalWrite(A9, LOW);
+  digitalWrite(A10, LOW);
+  digitalWrite(A11, LOW);
+  digitalWrite(A12, LOW);
+  digitalWrite(A13, LOW);
+  digitalWrite(A14, LOW);
+  digitalWrite(A15, LOW);
+  for (int i = 0; i <= 15; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+  for (int i = 18; i <= 19; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+  for (int i = 22; i <= 53; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+  power_spi_disable();
+  power_usart0_disable();
+  power_usart1_disable();
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  
+  //Serial.begin(57600);
   Serial2.begin(57600);
   Serial2.println("Setup starts");
   Serial2.flush();
 
-  pinMode(LED_BUILTIN, OUTPUT);
 
   // ---- Tasks setup: Higher numerical value, higher priority ----
   queueSemaphore = xSemaphoreCreateCounting(1, 0); //Used this instead of others as initial count can be set
@@ -219,7 +267,7 @@ void sensorReader(void *p) {
 
     // ------ Reading voltage and current sensor data ------
     voltageValue = analogRead(VOLTAGE_SENSOR_PIN);    // Reading voltage value
-    voltage = 2 * voltageValue * 4.7 / 1024;    // Remap the ADC value into a voltage number (4.7V reference)
+    voltage = 2 * voltageValue * 4.85 / 1024;    // Remap the ADC value into a voltage number (4.7V reference)
     readingsArray[6] = voltage;
 
     // Follow the equation given by the INA169 datasheet to determine the current flowing through RS
@@ -316,10 +364,8 @@ void connHandler(void *p) {
 
   while (1) {
     //dprintf("Checking for connection request");
-    digitalWrite(LED_BUILTIN, LOW);
     if (Serial2.available()) {
       delay(1);
-      digitalWrite(LED_BUILTIN, HIGH);
       incomingByte = Serial2.read();
       //Serial.println(incomingByte);
       clearRxBuffer();
